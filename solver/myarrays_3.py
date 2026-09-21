@@ -1,0 +1,268 @@
+"""
+reservoir simulation project 1(2022)
+2D Multiphase reservoir simulation: Making arrays
+Author: Promise O. Longe
+Email: longepromise@ku.edu
+Date modified: 04/18/2022
+"""
+from scipy.sparse import lil_matrix, csr_matrix
+from scipy.sparse.linalg import inv
+from scipy.sparse.linalg import spsolve
+from Thalf import Thalf  # for calculating transmissibility
+from cap_press import cap_press
+from spdiaginv import spdiaginv
+from numpy import zeros
+
+
+class numerical:
+    def __init__(self):
+        self.Bw = []
+
+
+class reservoir:
+    def __init__(self):
+        self.dt = []
+
+
+class fluid:
+    def __init__(self):
+        self.dt = []
+
+
+class grid:
+    def __init__(self):
+        self.xmin = []
+
+
+class BC:
+    def __init__(self):
+        self.xmin = []
+
+
+class IC:
+    def __init__(self):
+        self.xmin = []
+
+
+class petro:
+    def __init__(self):
+        self.xmin = []
+
+
+class well:
+    def __init__(self):
+        self.xmin = []
+
+
+# fluid, reservoir and simulation parameters
+def myarrays(fluid, reservoir, petro, numerical, IC, BC, P, Sw, Sw_hyst):
+    # Setting up matrix T, G, and Q
+    T = lil_matrix((numerical.N, numerical.N))
+    Tw = lil_matrix((numerical.N, numerical.N))
+    To = lil_matrix((numerical.N, numerical.N))
+    B = lil_matrix((numerical.N, numerical.N))
+    d11 = lil_matrix((numerical.N, numerical.N))
+    d12 = lil_matrix((numerical.N, numerical.N))
+    d21 = lil_matrix((numerical.N, numerical.N))
+    d22 = lil_matrix((numerical.N, numerical.N))
+    D = lil_matrix((numerical.N, numerical.N))
+    G = lil_matrix((numerical.N, 1))
+    Q = lil_matrix((numerical.N, 1))
+    Qwb = lil_matrix((numerical.N, 1))
+    Qob = lil_matrix((numerical.N, 1))
+    Pc = zeros((numerical.N, 1))
+    Pw = zeros((numerical.N, 1))
+
+    for l in range(0, numerical.N):
+        Pc[l, 0], Pcprime = cap_press(petro, Sw[l, 0])
+        Pw[l, 0] = P[l, 0] - Pc[l, 0]
+
+        if (l + 1) % numerical.Nx != 1:  # not on left boundary
+            if numerical.D[l - 1, 0] != 0.0:
+                Twhalf, Tohalf = Thalf(l, l - 1, 'x', fluid, reservoir, petro, numerical, P, Pw, Pc, Sw)
+                Tw[l, l - 1] = -Twhalf
+                To[l, l - 1] = -Tohalf
+
+                Tw[l, l] = Tw[l, l] - Tw[l, l - 1]
+                To[l, l] = To[l, l] - To[l, l - 1]
+            else:
+                if 'Neumann' in BC.type[0]:
+                    Twhalf, Tohalf = Thalf(l, l, 'x', fluid, reservoir, petro, numerical, P, Pw, Pc, Sw)
+                    To[l, l] = To[l, l] + Tohalf
+                    Tw[l, l] = Tw[l, l] + Twhalf
+
+                    Qob[l, 0] = Qob[l, 0] + Tohalf * (BC.value[0][0] - (fluid.rho[l, 0] / 144.0) * numerical.D[l, 0]) * 6.33E-3
+                    Qwb[l, 0] = Qwb[l, 0] + Twhalf * (BC.value[0][0] -(fluid.rhw[l, 0] / 144.0) *numerical.D[l, 0]) *6.33E-3
+                    Twhalf = 0; Tohalf = 0
+
+                elif 'Dirichlet' in BC.type[0]:
+                    Twhalf, Tohalf = Thalf(l, l, 'x', fluid, reservoir, petro, numerical, P, Pw, Pc, Sw)
+                    Qob[l, 0] = Qob[l, 0] + 2 * Tohalf * (BC.value[0][0]) * 6.33E-03
+                    Qwb[l, 0] = Qwb[l, 0] + 2 * Twhalf * (BC.value[0][0]) * 6.33E-03
+                    Twhalf = 0; Tohalf = 0
+
+        else:  # left boundary
+            if 'Neumann' in BC.type[0]:
+                Twhalf, Tohalf = Thalf(l, l, 'x', fluid, reservoir, petro, numerical, P, Pw, Pc, Sw)
+                To[l, l] = To[l, l] + Tohalf
+                Tw[l, l] = Tw[l, l] + Twhalf
+
+                Qob[l, 0] = Qob[l, 0] + Tohalf * (BC.value[0][0] - (fluid.rho[l, 0] / 144.0) * numerical.D[l, 0]) * 6.33E-3
+                Qwb[l, 0] = Qwb[l, 0] + Twhalf * (BC.value[0][0] - (fluid.rhw[l, 0] / 144.0) * numerical.D[l, 0]) *6.33E-3
+                Twhalf = 0; Tohalf = 0
+
+            elif 'Dirichlet' in BC.type[0]:
+                Twhalf, Tohalf = Thalf(l, l, 'x', fluid, reservoir, petro, numerical, P, Pw, Pc, Sw)
+
+                Qob[l, 0] = Qob[l, 0] + 2 * Tohalf * (BC.value[0][0]) * 6.33E-03
+                Qwb[l, 0] = Qwb[l, 0] + 2 * Twhalf * (BC.value[0][0]) * 6.33E-03
+                Twhalf = 0; Tohalf = 0
+
+        if (l + 1) % numerical.Nx != 0:  # not on right boundary
+            if numerical.D[l + 1, 0] != 0.0:
+                Twhalf, Tohalf = Thalf(l, l + 1, 'x', fluid, reservoir, petro, numerical, P, Pw, Pc, Sw)
+                Tw[l, l + 1] = -Twhalf
+                To[l, l + 1] = -Tohalf
+
+                Tw[l, l] = Tw[l, l] - Tw[l, l + 1]
+                To[l, l] = To[l, l] - To[l, l + 1]
+
+            else:
+                if 'Neumann' in BC.type[1]:
+                    Twhalf, Tohalf = Thalf(l, l, 'x', fluid, reservoir, petro, numerical, P, Pw, Pc, Sw)
+                    To[l, l] = To[l, l] + Tohalf
+                    Tw[l, l] = Tw[l, l] + Twhalf
+
+                    Qob[l, 0] = Qob[l, 0] + Tohalf * (BC.value[1][0] - (fluid.rho[l, 0] / 144.0) * numerical.D[l, 0]) * 6.33E-3
+                    Qwb[l, 0] = Qwb[l, 0] + Twhalf * (BC.value[1][0] - (fluid.rhw[l, 0] / 144.0) * numerical.D[l, 0]) *6.33E-3
+                    Twhalf = 0; Tohalf = 0
+
+                elif 'Dirichlet' in BC.type[1]:
+                    Twhalf, Tohalf = Thalf(l, l, 'x', fluid, reservoir, petro, numerical, P, Pw, Pc, Sw)
+                    Qob[l, 0] = Qob[l, 0] + 2 * Tohalf * (BC.value[1][0]) * 6.33E-03
+                    Qwb[l, 0] = Qwb[l, 0] + 2 * Twhalf * (BC.value[1][0]) * 6.33E-03
+                    Twhalf = 0; Tohalf = 0
+
+        else:  # Right boundary
+            if 'Neumann' in BC.type[1]:
+                Twhalf, Tohalf = Thalf(l, l, 'x', fluid, reservoir, petro, numerical, P, Pw, Pc, Sw)
+                To[l, l] = To[l, l] + Tohalf
+                Tw[l, l] = Tw[l, l] + Twhalf
+
+                Qob[l, 0] = Qob[l, 0] + Tohalf * (BC.value[1][0] - (fluid.rho[l, 0] / 144.0) * numerical.D[l, 0]) * 6.33E-3
+                Qwb[l, 0] = Qwb[l, 0] + Twhalf * (BC.value[1][0] - (fluid.rhw[l, 0] / 144.0) * numerical.D[l, 0]) *6.33E-3
+                Twhalf = 0; Tohalf = 0
+
+            elif 'Dirichlet' in BC.type[1]:
+                Twhalf, Tohalf = Thalf(l, l, 'x', fluid, reservoir, petro, numerical, P, Pw, Pc, Sw)
+
+                Qob[l, 0] = Qob[l, 0] + 2 * Tohalf * (BC.value[1][0]) * 6.33E-03
+                Qwb[l, 0] = Qwb[l, 0] + 2 * Twhalf * (BC.value[1][0]) * 6.33E-03
+                Twhalf = 0; Tohalf = 0
+
+
+        if int(l / numerical.Nx) > 0:  # not bottom boundary
+            if numerical.D[l - numerical.Nx,0] != 0.0:
+                Twhalf, Tohalf = Thalf(l, l - numerical.Nx, 'y', fluid, reservoir, petro, numerical, P, Pw, Pc, Sw)
+                Tw[l, l - numerical.Nx] = -Twhalf
+                To[l, l - numerical.Nx] = -Tohalf
+
+                Tw[l, l] = Tw[l, l] - Tw[l, l - numerical.Nx]
+                To[l, l] = To[l, l] - To[l, l - numerical.Nx]
+
+            else:
+                if 'Neumann' in BC.type[2]:
+                    Twhalf, Tohalf = Thalf(l, l, 'y', fluid, reservoir, petro, numerical, P, Pw, Pc, Sw)
+                    To[l, l] = To[l, l] + Tohalf
+                    Tw[l, l] = Tw[l, l] + Twhalf
+
+                    Qob[l, 0] = Qob[l, 0] + Tohalf * (BC.value[2][0] - (fluid.rho[l, 0] / 144.0) * numerical.D[l, 0]) * 6.33E-3
+                    Qwb[l, 0] = Qwb[l, 0] + Twhalf * (BC.value[2][0] -(fluid.rhw[l, 0] / 144.0) * numerical.D[l, 0]) *6.33E-3
+                    Twhalf = 0; Tohalf = 0
+
+                elif 'Dirichlet' in BC.type[2]:
+                    Twhalf, Tohalf = Thalf(l, l, 'y', fluid, reservoir, petro, numerical, P, Pw, Pc, Sw)
+                    Qob[l, 0] = Qob[l, 0] + 2 * Tohalf * (BC.value[2][0]) * 6.33E-03
+                    Qwb[l, 0] = Qwb[l, 0] + 2 * Twhalf * (BC.value[2][0]) * 6.33E-03
+                    Twhalf = 0; Tohalf = 0
+
+        else:    # Bottom boundary
+                if 'Neumann' in BC.type[2]:
+                    Twhalf, Tohalf = Thalf(l, l, 'y', fluid, reservoir, petro, numerical, P, Pw, Pc, Sw)
+                    To[l, l] = To[l, l] + Tohalf
+                    Tw[l, l] = Tw[l, l] + Twhalf
+
+                    Qob[l, 0] = Qob[l, 0] + Tohalf * (BC.value[2][0] - (fluid.rho[l, 0] / 144.0) * numerical.D[l, 0]) * 6.33E-3
+                    Qwb[l, 0] = Qwb[l, 0] + Twhalf * (BC.value[2][0] -(fluid.rhw[l, 0] / 144.0) * numerical.D[l, 0]) *6.33E-3
+                    Twhalf = 0; Tohalf = 0
+
+                elif 'Dirichlet' in BC.type[2]:
+                    Twhalf, Tohalf = Thalf(l, l, 'y', fluid, reservoir, petro, numerical, P, Pw, Pc, Sw)
+                    Qob[l, 0] = Qob[l, 0] + 2 * Tohalf * (BC.value[2][0]) * 6.33E-03
+                    Qwb[l, 0] = Qwb[l, 0] + 2 * Twhalf * (BC.value[2][0]) * 6.33E-03
+                    Twhalf = 0; Tohalf = 0
+
+
+        if int(l / numerical.Nx) < numerical.Ny - 1:  # not top boundary
+            if numerical.D[(l + numerical.Nx), 0] != 0.0:
+                Twhalf, Tohalf = Thalf(l, l + numerical.Nx, 'y', fluid, reservoir, petro, numerical, P, Pw, Pc, Sw)
+                Tw[l, l + numerical.Nx] = -Twhalf
+                To[l, l + numerical.Nx] = -Tohalf
+
+                Tw[l, l] = Tw[l, l] - Tw[l, l + numerical.Nx]
+                To[l, l] = To[l, l] - To[l, l + numerical.Nx]
+
+            else:
+                if 'Neumann' in BC.type[3]:
+                    Twhalf, Tohalf = Thalf(l, l, 'y', fluid, reservoir, petro, numerical, P, Pw, Pc, Sw)
+                    To[l, l] = To[l, l] + Tohalf
+                    Tw[l, l] = Tw[l, l] + Twhalf
+
+                    Qob[l, 0] = Qob[l, 0] + Tohalf * (BC.value[3][0] -(fluid.rho[l,0] / 144.0) * numerical.D[l, 0]) * 6.33E-3
+                    Qwb[l, 0] = Qwb[l, 0] + Twhalf * (BC.value[3][0] -(fluid.rhw[l,0] / 144.0) * numerical.D[l, 0]) * 6.33E-3
+                    Twhalf = 0; Tohalf = 0
+
+                elif 'Dirichlet' in BC.type[3]:
+                    Twhalf, Tohalf = Thalf(l, l, 'y', fluid, reservoir, petro, numerical, P, Pw, Pc, Sw)
+                    Qob[l, 0] = Qob[l, 0] + 2 * Tohalf * (BC.value[3][0]) * 6.33E-03
+                    Qwb[l, 0] = Qwb[l, 0] + 2 * Twhalf * (BC.value[3][0]) * 6.33E-03
+                    Twhalf = 0; Tohalf = 0
+
+        else:    # Top boundary
+                if 'Neumann' in BC.type[3]:
+                    Twhalf, Tohalf = Thalf(l, l, 'y', fluid, reservoir, petro, numerical, P, Pw, Pc, Sw)
+                    To[l, l] = To[l, l] + Tohalf
+                    Tw[l, l] = Tw[l, l] + Twhalf
+
+                    Qob[l, 0] = Qob[l, 0] + Tohalf * (BC.value[3][0] - (fluid.rho[l, 0] / 144.0) * numerical.D[l, 0]) * 6.33E-03
+                    Qwb[l, 0] = Qwb[l, 0] + Twhalf * (BC.value[3][0] -(fluid.rhw[l, 0] / 144.0) * numerical.D[l, 0]) * 6.33E-03
+                    Twhalf = 0; Tohalf = 0
+
+                elif 'Dirichlet' in BC.type[2]:
+                    Twhalf, Tohalf = Thalf(l, l, 'y', fluid, reservoir, petro, numerical, P, Pw, Pc, Sw)
+                    Qob[l, 0] = Qob[l, 0] + 2 * Tohalf * (BC.value[3][0]) * 6.33E-03
+                    Qwb[l, 0] = Qwb[l, 0] + 2 * Twhalf * (BC.value[3][0]) * 6.33E-03
+                    Twhalf = 0; Tohalf = 0
+
+
+        # B[l,l] = numerical.dx[l,0] * numerical.dy[l,0] * reservoir.h * reservoir.phi[l,0] * fluid.ct / fluid.Bw[l,0] #accumulation
+        Vp = numerical.dx[l, 0] * numerical.dy[l, 0] * reservoir.h * reservoir.phi[l, 0]
+        d11[l, l] = Vp * Sw[l, 0] * (fluid.cw + reservoir.cfr) / (fluid.Bw[l, 0] * numerical.dt)
+        d12[l, l] = Vp / (fluid.Bw[l, 0] * numerical.dt) * (1.0 - Sw[l, 0] * reservoir.phi[l, 0] * fluid.cw * Pcprime)
+        d21[l, l] = Vp * (1 - Sw[l, 0]) * (fluid.co + reservoir.cfr) / (fluid.Bo[l, 0] * numerical.dt)
+        d22[l, l] = -Vp / (fluid.Bo[l, 0] * numerical.dt)
+        D[l, l] = (-d22[l, l] * d11[l, l] / d12[l, l]) + d21[l, l]
+
+    d22 = d22.tocsr()
+    d12 = d12.tocsr()
+    d21 = d21.tocsr()
+    d11 = d11.tocsr()
+
+    Tw = (Tw).tocsr() * 6.33E-03  # multiplying with the conversion factor
+    To = (To).tocsr() * 6.33E-03  # multiplying with the conversion factor
+    T = (-d22 @ (spdiaginv(d12)) @ Tw) + To  # Weighing using the formula given in the sheet
+    Q = -d22 @ ( spdiaginv(d12) @ Qwb ) + Qob
+    G = -d22 @ (spdiaginv(d12) @ (Tw @ (P - Pw))) - d22 @ (spdiaginv(d12) @ (Tw @ numerical.D)) * fluid.rhw / 144.0 + (fluid.rho[0, 0] / 144.0 * To) @ numerical.D * 6.33E-03
+
+    return Tw, To, T, d11, d12, d21, d22, D, G, Q, Pc, Pw;
+

@@ -103,7 +103,7 @@ If this repository contributes to your research or publication, please cite the 
 
 ```text
 Author: Promise Longe
-Repository: [2-D Reservoir Simulator](https://github.com/Keshi-23/2D_Reservoir_simulator)
+Repository: https://github.com/Keshi-23/2D_Reservoir_simulator
 Method: IMPES numerical simulation of immiscible two-phase flow in porous media
 ```
 
